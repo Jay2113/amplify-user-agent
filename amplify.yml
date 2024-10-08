@@ -1,0 +1,61 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci --cache .npm --prefer-offline
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: build
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - .npm/**/*
+test:
+  artifacts:
+    baseDirectory: cypress
+    configFilePath: '**/mochawesome.json'
+    files:
+      - 'coverage/**/*'
+      - 'cypress/**/*'
+      - '**/*.png'
+      - '**/*.mp4'
+      - 'tests_cypress.json'
+  phases:
+    preTest:
+      commands:
+        - yarn add cypress@13.13.0
+        # - yarn add cypress@12.14.0
+        # - yarn add mocha mochawesome mochawesome-merge mochawesome-report-generator serve wait-on # this are now in package.json
+        - 'npx serve -l 8000 -s public & npx wait-on http://127.0.0.1:8000'
+        - export COVERAGE_OUTPUT_DIR=/codebuild/output/coverage
+        - mkdir -p $COVERAGE_OUTPUT_DIR
+    test:
+      commands:
+        # ! REVERT TO staging/brand as required
+        # - ENV=brand yarn jest:prod
+        - set -e
+        - ENV=staging yarn jest:prod
+        - mv ./coverage/lcov-report ./coverage/jest || true
+        # - test $? -eq 0 || exit 1 #if jest fails exit
+        - cypress install
+        - npm install -g playwright
+        # - npx webkit install
+        # - npx playwright-webkit install
+        - npx playwright install-deps
+        # - test $? -eq 0 || exit 1 #if jest fails exit
+        - 'NO_COLOR=1 npx cypress run --env timestamp=$(date +%s),environment=${ENV} --reporter mochawesome --reporter-options "reportDir=cypress/report/mochawesome-report,overwrite=false,html=false,json=true,timestamp=mmddyyyy_HHMMss"'
+        - ls -la coverage || true
+        - ls -la coverage/lcov-report || true
+        - cat coverage/lcov-report/index.html || true
+        - ls -R $COVERAGE_OUTPUT_DIR
+    postTest:
+      commands:
+        - cp -R $COVERAGE_OUTPUT_DIR ./coverage
+        - yarn postbuild
+        - mkdir -p cypress/report/mochawesome-report/
+        - npx mochawesome-merge@4 cypress/report/mochawesome-report/*.json > cypress/report/mochawesome.json
+        - npx kill-port 8000
